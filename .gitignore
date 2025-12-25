@@ -192,6 +192,10 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+artifacts/
+playwright-report/
+test-results/
+
 # PyPI configuration file
 .pypirc
 

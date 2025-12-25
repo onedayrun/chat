@@ -143,9 +143,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-EXPOSE 8000
+EXPOSE 8003
 
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8003"]
 '''
         },
         {
@@ -181,8 +181,8 @@ uvicorn src.main:app --reload
 
 ## API Docs
 
-- Swagger: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+- Swagger: http://localhost:8003/docs
+- ReDoc: http://localhost:8003/redoc
 '''
         }
     ],

@@ -1,6 +1,6 @@
 # OneDay.run Platform - Makefile
 
-.PHONY: help install dev test e2e coverage lint format run docker-up docker-bg docker-down stop logs clean
+.PHONY: help install dev test e2e e2e-ui playwright-install build publish publish-test coverage lint format run docker-up docker-bg docker-down stop logs clean
 
 # Default target
 help:
@@ -26,11 +26,19 @@ dev:
 
 # Run tests
 test:
-	pytest tests/ -v
+	pytest tests/ -v -m "not e2e and not e2e_ui"
 
 # Run end-to-end tests (requires running app)
 e2e:
+	docker-compose up -d app
+	docker-compose exec -T app python -c 'import time,urllib.request; exec("url=\"http://localhost:8000/health\"\nlast=None\nfor _ in range(60):\n    try:\n        urllib.request.urlopen(url, timeout=2).read(); break\n    except Exception as e:\n        last=e; time.sleep(1)\nelse:\n    raise SystemExit(\"App did not become healthy: %r\" % (last,))\n")'
 	docker-compose exec -T app env E2E_BASE_URL=http://localhost:8000 pytest tests/ -v -m e2e
+
+playwright-install:
+	python -m playwright install chromium
+
+e2e-ui:
+	E2E_BASE_URL=http://localhost:$$(awk -F= '/^APP_HOST_PORT=/{print $$2}' .env | tail -n 1 | tr -d '"' | tr -d "'") pytest tests/ -v -m e2e_ui
 
 # Run tests with coverage
 coverage:
@@ -49,7 +57,7 @@ format:
 
 # Run development server
 run:
-	python -m dotenv run -- uvicorn src.main:app --reload --host 0.0.0.0 --port $${APP_HOST_PORT:-8000}
+	python -m dotenv run -- bash -lc 'uvicorn src.main:app --reload --host 0.0.0.0 --port $${APP_HOST_PORT:-8000}'
 
 # Build and run with Docker
 docker-up:
@@ -75,6 +83,18 @@ clean:
 	rm -rf __pycache__ .pytest_cache .mypy_cache .coverage htmlcov dist build *.egg-info
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
+
+build:
+	python -c "import build" >/dev/null 2>&1 || (echo "Missing dependency: build. Run: make dev" >&2; exit 1)
+	python -m build
+
+publish: build
+	python -c "import twine" >/dev/null 2>&1 || (echo "Missing dependency: twine. Run: make dev" >&2; exit 1)
+	python -m twine upload dist/*
+
+publish-test: build
+	python -c "import twine" >/dev/null 2>&1 || (echo "Missing dependency: twine. Run: make dev" >&2; exit 1)
+	python -m twine upload --repository testpypi dist/*
 
 # Database migrations (if using Alembic)
 migrate:

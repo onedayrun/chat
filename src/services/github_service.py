@@ -34,6 +34,14 @@ class GitHubService:
         if self._user is None:
             self._user = self.github.get_user()
         return self._user
+
+    @property
+    def user(self):
+        return self._get_user()
+
+    @user.setter
+    def user(self, value):
+        self._user = value
         
     async def create_repository(
         self,

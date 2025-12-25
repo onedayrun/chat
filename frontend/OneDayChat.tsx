@@ -29,7 +29,7 @@ interface OneDayChatProps {
 
 const OneDayChat: React.FC<OneDayChatProps> = ({ 
   projectId, 
-  apiBaseUrl = 'ws://localhost:8000' 
+  apiBaseUrl = 'ws://localhost:8003'
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');

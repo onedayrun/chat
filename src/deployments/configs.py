@@ -14,7 +14,7 @@ class DeploymentConfig:
     start_command: Optional[str] = None
     env_vars: Dict[str, str] = field(default_factory=dict)
     health_check_path: str = "/health"
-    port: int = 8000
+    port: int = 8003
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -32,7 +32,7 @@ RAILWAY_PYTHON_CONFIG = DeploymentConfig(
     platform="railway",
     build_command="pip install -r requirements.txt",
     start_command="uvicorn src.main:app --host 0.0.0.0 --port $PORT",
-    port=8000,
+    port=8003,
     health_check_path="/health"
 )
 
@@ -57,7 +57,7 @@ VERCEL_PYTHON_CONFIG = DeploymentConfig(
     platform="vercel",
     build_command=None,
     start_command=None,
-    port=8000,
+    port=8003,
     health_check_path="/health"
 )
 
@@ -66,7 +66,7 @@ RENDER_PYTHON_CONFIG = DeploymentConfig(
     platform="render",
     build_command="pip install -r requirements.txt",
     start_command="uvicorn src.main:app --host 0.0.0.0 --port $PORT",
-    port=8000,
+    port=8003,
     health_check_path="/health"
 )
 

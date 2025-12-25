@@ -76,7 +76,10 @@ cp .env.example .env
 
 ```bash
 # Podstawowe uruchomienie
-docker-compose up --build
+make docker-up
+
+# Logi
+make logs
 
 # Z LiteLLM proxy
 docker-compose --profile full up -d
@@ -94,9 +97,41 @@ uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 
 ### 4. Testowanie
 
-Otwórz w przeglądarce:
-- **API Docs**: http://localhost:8000/docs
-- **Chat UI**: http://localhost:8000/chat/{project_id}
+#### Web UI (GUI)
+
+GUI jest serwowane bezpośrednio przez backend (FastAPI):
+
+- **API Docs (Swagger UI)**: `/docs`
+- **Chat UI (testowe GUI dla projektu)**: `/chat/{project_id}`
+
+**Port w Dockerze** zależy od `APP_HOST_PORT` w `.env`:
+
+- Jeśli masz np. `APP_HOST_PORT=8002`, to:
+  - `http://localhost:8002/docs`
+  - `http://localhost:8002/chat/{project_id}`
+
+- Jeśli ustawisz `APP_HOST_PORT=0` (ephemeral), sprawdź przypięty port poleceniem:
+
+```bash
+docker-compose port app 8000
+```
+
+#### Testy E2E
+
+```bash
+make e2e
+```
+
+#### Screenshoty GUI (Playwright)
+
+```bash
+make dev
+make playwright-install
+make docker-up
+make e2e-ui
+```
+
+Zrzuty zapisują się w `artifacts/screenshots/`.
 
 ## 📡 API Endpoints
 
@@ -131,6 +166,57 @@ ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
   // data.type: 'response_chunk', 'progress', 'tool', 'system'
 };
+```
+
+## 🐚 "DSL" w shell (REST + WebSocket)
+
+Poniżej są minimalne komendy, żeby używać systemu bez GUI.
+
+### 1) Utworzenie projektu (REST)
+
+```bash
+BASE_URL=http://localhost:8002
+
+PROJECT_ID=$(curl -sS -X POST "$BASE_URL/projects" \
+  -H 'content-type: application/json' \
+  -d '{"client_name":"Acme","tier":"8h","initial_message":"Zbuduj prostą aplikację"}' \
+  | jq -r .project_id)
+
+echo "$PROJECT_ID"
+```
+
+### 2) GUI dla projektu
+
+```bash
+xdg-open "$BASE_URL/chat/$PROJECT_ID"
+```
+
+### 3) WebSocket z terminala
+
+Najprościej użyć `websocat`:
+
+```bash
+websocat "ws://localhost:8002/ws/$PROJECT_ID"
+```
+
+Następnie wklejasz linie JSON:
+
+```json
+{"type":"message","content":"Powiedz hello"}
+```
+
+Komendy sterujące:
+
+```json
+{"type":"command","command":"status"}
+```
+
+```json
+{"type":"command","command":"components","query":"auth"}
+```
+
+```json
+{"type":"command","command":"deploy","platform":"railway"}
 ```
 
 ## 📦 Biblioteka komponentów
@@ -201,10 +287,33 @@ REDIS_URL=redis://...
 
 ```bash
 # Testy jednostkowe
-pytest tests/ -v
+make test
 
 # Testy z coverage
 pytest tests/ --cov=src --cov-report=html
+```
+
+## 📦 Publikacja do PyPI
+
+Wymaga skonfigurowanych poświadczeń do PyPI (np. token):
+
+```bash
+export TWINE_USERNAME=__token__
+export TWINE_PASSWORD=pypi-...  # lub ustaw w ~/.pypirc
+```
+
+Publikacja:
+
+```bash
+make dev
+make publish
+```
+
+TestPyPI:
+
+```bash
+make dev
+make publish-test
 ```
 
 ## 📄 Licencja

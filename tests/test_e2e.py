@@ -8,14 +8,10 @@ import json
 
 def _get_base_url() -> str:
     base_url = os.environ.get("E2E_BASE_URL")
-    if base_url:
-        return base_url.rstrip("/")
+    if not base_url:
+        pytest.skip("E2E_BASE_URL is required for e2e tests")
 
-    port = os.environ.get("APP_HOST_PORT", "")
-    if not port or port == "0":
-        pytest.skip("E2E_BASE_URL is required when APP_HOST_PORT is not set or is 0")
-
-    return f"http://localhost:{port}".rstrip("/")
+    return base_url.rstrip("/")
 
 
 async def _ws_receive_json_text(ws: aiohttp.ClientWebSocketResponse, *, timeout: int):
@@ -57,6 +53,13 @@ async def test_e2e_http_and_websocket_flow():
             assert resp.status == 200
             project = await resp.json()
             project_id = project["project_id"]
+
+        async with session.get(f"{base_url}/chat/{project_id}") as resp:
+            assert resp.status == 200
+            html = await resp.text()
+            assert "<!DOCTYPE html>" in html
+            assert f"OneDay.run Chat - {project_id}" in html
+            assert f"const projectId = \"{project_id}\"" in html
 
         ws_url = base_url.replace("http://", "ws://").replace("https://", "wss://")
         ws_url = f"{ws_url}/ws/{project_id}"

@@ -198,6 +198,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "slow: marks tests as slow")
     config.addinivalue_line("markers", "integration: marks tests as integration tests")
     config.addinivalue_line("markers", "e2e: marks tests as end-to-end tests")
+    config.addinivalue_line("markers", "e2e_ui: marks Playwright UI screenshot tests")
 
 
 def pytest_pyfunc_call(pyfuncitem):

@@ -21,6 +21,10 @@ with patch('src.services.github_service.settings') as mock_settings:
             mock_app_settings.APP_VERSION = "1.0.0"
             mock_app_settings.GITHUB_TOKEN = "test-token"
             mock_app_settings.ANTHROPIC_API_KEY = "test-key"
+            mock_app_settings.PRICING_TIERS = {
+                "1h": {"price": 150, "max_tokens": 50000, "max_files": 5},
+                "8h": {"price": 1200, "max_tokens": 400000, "max_files": 20},
+            }
             
             from src.main import app
 
