@@ -28,6 +28,10 @@ dev:
 test:
 	pytest tests/ -v
 
+# Run end-to-end tests (requires running app)
+e2e:
+	pytest tests/ -v -m e2e
+
 # Run tests with coverage
 coverage:
 	pytest tests/ --cov=src --cov-report=html --cov-report=term-missing
@@ -58,6 +62,9 @@ docker-bg:
 # Stop Docker
 docker-stop:
 	docker-compose down
+
+# Alias: stop
+stop: docker-stop
 
 # View logs
 logs:

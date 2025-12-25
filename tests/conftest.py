@@ -201,6 +201,14 @@ def pytest_configure(config):
 
 
 def pytest_pyfunc_call(pyfuncitem):
+    try:
+        import pytest_asyncio  # type: ignore
+
+        if hasattr(pytest_asyncio, "fixture"):
+            return None
+    except ModuleNotFoundError:
+        pass
+
     testfunction = pyfuncitem.obj
     if not inspect.iscoroutinefunction(testfunction):
         return None
