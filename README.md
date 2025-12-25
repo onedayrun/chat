@@ -76,7 +76,7 @@ cp .env.example .env
 
 ```bash
 # Podstawowe uruchomienie
-docker-compose up -d
+docker-compose up --build
 
 # Z LiteLLM proxy
 docker-compose --profile full up -d

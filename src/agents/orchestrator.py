@@ -231,11 +231,31 @@ KONTEKST PROJEKTU: {project_context}
         self.services = services or {}
         self.conversation_history: List[Dict[str, str]] = []
         self.context: Optional[ProjectContext] = None
+        self.model: str = settings.DEFAULT_MODEL
         
         # Configure LiteLLM
-        litellm.api_key = settings.ANTHROPIC_API_KEY
         if settings.LITELLM_PROXY_URL:
             litellm.api_base = settings.LITELLM_PROXY_URL
+            if settings.LITELLM_API_KEY:
+                litellm.api_key = settings.LITELLM_API_KEY
+        elif settings.LLM_PROVIDER == "ollama":
+            litellm.api_base = settings.OLLAMA_BASE_URL
+            litellm.api_key = None
+            self.model = settings.OLLAMA_MODEL
+        else:
+            litellm.api_base = None
+            litellm.api_key = settings.ANTHROPIC_API_KEY
+
+    async def _acompletion_with_fallback(self, **kwargs):
+        """Calls LiteLLM with a small Ollama-specific fallback when tool calling isn't supported."""
+        try:
+            return await acompletion(**kwargs)
+        except Exception as e:
+            if settings.LLM_PROVIDER == "ollama" and "tools" in str(e).lower() and "tools" in kwargs:
+                kwargs = dict(kwargs)
+                kwargs.pop("tools", None)
+                return await acompletion(**kwargs)
+            raise
 
     async def start_project(
         self,
@@ -291,8 +311,8 @@ KONTEKST PROJEKTU: {project_context}
         
         try:
             if stream:
-                response = await acompletion(
-                    model=settings.DEFAULT_MODEL,
+                response = await self._acompletion_with_fallback(
+                    model=self.model,
                     messages=messages,
                     tools=self.TOOLS,
                     max_tokens=settings.MAX_TOKENS,
@@ -331,8 +351,8 @@ KONTEKST PROJEKTU: {project_context}
                     self.context.tokens_used += len(full_response.split()) * 1.3
                     
             else:
-                response = await acompletion(
-                    model=settings.DEFAULT_MODEL,
+                response = await self._acompletion_with_fallback(
+                    model=self.model,
                     messages=messages,
                     tools=self.TOOLS,
                     max_tokens=settings.MAX_TOKENS,

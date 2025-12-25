@@ -4,9 +4,14 @@ services:
   app:
     build: .
     ports:
-      - "${APP_HOST_PORT:-18000}:8000"
+      - "${APP_HOST_PORT:-0}:8000"
     environment:
+      - LLM_PROVIDER=${LLM_PROVIDER:-anthropic}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-ollama/llama3.1:8b}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - LITELLM_PROXY_URL=${LITELLM_PROXY_URL:-}
+      - LITELLM_API_KEY=${LITELLM_API_KEY:-}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - GITHUB_ORG=${GITHUB_ORG:-prototypowanie-pl}
       - RAILWAY_TOKEN=${RAILWAY_TOKEN}
@@ -14,6 +19,8 @@ services:
       - RENDER_API_KEY=${RENDER_API_KEY}
       - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://oneday:oneday@db:5432/oneday}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - db
       - redis

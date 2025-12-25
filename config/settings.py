@@ -17,12 +17,17 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "your-secret-key-change-in-production"
     
     # LLM Configuration
+    LLM_PROVIDER: str = "anthropic"  # anthropic | ollama
     ANTHROPIC_API_KEY: str = ""
     OPENAI_API_KEY: Optional[str] = None
     DEFAULT_MODEL: str = "anthropic/claude-opus-4-5-20251101"
     FALLBACK_MODEL: str = "anthropic/claude-sonnet-4-5-20250929"
     MAX_TOKENS: int = 8192
     TEMPERATURE: float = 0.7
+
+    # Ollama (local)
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "ollama/llama3.1:8b"
     
     # LiteLLM Proxy (optional)
     LITELLM_PROXY_URL: Optional[str] = None
@@ -109,6 +114,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"
 
 
 @lru_cache()
