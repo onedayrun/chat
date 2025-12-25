@@ -60,8 +60,8 @@ Wykorzystuje **Claude Opus 4.5** via **LiteLLM** do generowania kompletnych rozw
 ### 1. Klonowanie i konfiguracja
 
 ```bash
-git clone https://github.com/prototypowanie-pl/chat.git
-cd chat
+git clone https://github.com/prototypowanie-pl/oneday-platform.git
+cd oneday-platform
 
 # Kopiowanie konfiguracji
 cp .env.example .env
