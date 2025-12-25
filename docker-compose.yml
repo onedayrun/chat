@@ -1,0 +1,65 @@
+# OneDay.run Platform - Docker Compose
+version: '3.8'
+
+services:
+  # Main application
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_ORG=${GITHUB_ORG:-prototypowanie-pl}
+      - RAILWAY_TOKEN=${RAILWAY_TOKEN}
+      - VERCEL_TOKEN=${VERCEL_TOKEN}
+      - RENDER_API_KEY=${RENDER_API_KEY}
+      - DATABASE_URL=postgresql+asyncpg://oneday:oneday@db:5432/oneday
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: oneday
+      POSTGRES_PASSWORD: oneday
+      POSTGRES_DB: oneday
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  # LiteLLM Proxy (optional)
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    ports:
+      - "4000:4000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ./config/litellm_config.yaml:/app/config.yaml
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    restart: unless-stopped
+    profiles:
+      - full
+
+volumes:
+  postgres_data:
+  redis_data:
