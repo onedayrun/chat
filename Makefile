@@ -1,6 +1,6 @@
 # OneDay.run Platform - Makefile
 
-.PHONY: help install dev test lint format run docker clean
+.PHONY: help install dev test e2e coverage lint format run docker-up docker-bg docker-down stop logs clean
 
 # Default target
 help:
@@ -30,7 +30,7 @@ test:
 
 # Run end-to-end tests (requires running app)
 e2e:
-	pytest tests/ -v -m e2e
+	docker-compose exec -T app env E2E_BASE_URL=http://localhost:8000 pytest tests/ -v -m e2e
 
 # Run tests with coverage
 coverage:
@@ -49,22 +49,22 @@ format:
 
 # Run development server
 run:
-	uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+	python -m dotenv run -- uvicorn src.main:app --reload --host 0.0.0.0 --port $${APP_HOST_PORT:-8000}
 
 # Build and run with Docker
-docker:
-	docker-compose up --build
+docker-up:
+	docker-compose up --build -d
 
 # Docker in background
 docker-bg:
 	docker-compose up --build -d
 
 # Stop Docker
-docker-stop:
+docker-down:
 	docker-compose down
 
 # Alias: stop
-stop: docker-stop
+stop: docker-down
 
 # View logs
 logs:

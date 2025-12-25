@@ -2,6 +2,8 @@ import os
 
 import pytest
 import aiohttp
+from aiohttp import WSMsgType
+import json
 
 
 def _get_base_url() -> str:
@@ -14,6 +16,23 @@ def _get_base_url() -> str:
         pytest.skip("E2E_BASE_URL is required when APP_HOST_PORT is not set or is 0")
 
     return f"http://localhost:{port}".rstrip("/")
+
+
+async def _ws_receive_json_text(ws: aiohttp.ClientWebSocketResponse, *, timeout: int):
+    while True:
+        msg = await ws.receive(timeout=timeout)
+
+        if msg.type == WSMsgType.TEXT:
+            return json.loads(msg.data)
+
+        if msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED):
+            raise AssertionError(f"WebSocket closed (type={msg.type}, data={msg.data})")
+
+        if msg.type == WSMsgType.ERROR:
+            raise AssertionError(f"WebSocket error: {ws.exception()}")
+
+        if msg.type in (WSMsgType.PING, WSMsgType.PONG):
+            continue
 
 
 @pytest.mark.e2e
@@ -43,7 +62,7 @@ async def test_e2e_http_and_websocket_flow():
         ws_url = f"{ws_url}/ws/{project_id}"
 
         async with session.ws_connect(ws_url, heartbeat=30) as ws:
-            first = await ws.receive_json(timeout=10)
+            first = await _ws_receive_json_text(ws, timeout=10)
             assert first.get("type") == "system"
 
             await ws.send_json({"type": "message", "content": "Say hello"})
@@ -53,7 +72,7 @@ async def test_e2e_http_and_websocket_flow():
             saw_any_chunk = False
 
             for _ in range(200):
-                msg = await ws.receive_json(timeout=60)
+                msg = await _ws_receive_json_text(ws, timeout=60)
                 if msg.get("type") == "response_start":
                     saw_start = True
                 elif msg.get("type") == "response_chunk":
@@ -61,6 +80,8 @@ async def test_e2e_http_and_websocket_flow():
                 elif msg.get("type") == "response_end":
                     saw_end = True
                     break
+                elif msg.get("type") == "error":
+                    raise AssertionError(f"Server error: {msg.get('content')}")
 
             assert saw_start is True
             assert saw_end is True

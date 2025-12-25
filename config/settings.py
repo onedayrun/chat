@@ -15,6 +15,16 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
     SECRET_KEY: str = "your-secret-key-change-in-production"
+
+    # Environment
+    APP_ENV: str = "development"
+    LOG_LEVEL: str = "info"
+
+    # Docker/host ports (optional, mainly for local dev tooling)
+    APP_HOST_PORT: Optional[int] = None
+    POSTGRES_HOST_PORT: Optional[int] = None
+    REDIS_HOST_PORT: Optional[int] = None
+    LITELLM_HOST_PORT: Optional[int] = None
     
     # LLM Configuration
     LLM_PROVIDER: str = "anthropic"  # anthropic | ollama

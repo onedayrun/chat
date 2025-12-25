@@ -27,8 +27,13 @@ class GitHubService:
     def __init__(self, token: str = None):
         self.token = token or settings.GITHUB_TOKEN
         self.github = Github(self.token)
-        self.user = self.github.get_user()
+        self._user = None
         self.org = settings.GITHUB_ORG
+
+    def _get_user(self):
+        if self._user is None:
+            self._user = self.github.get_user()
+        return self._user
         
     async def create_repository(
         self,
@@ -74,14 +79,14 @@ class GitHubService:
                         )
                 except GithubException:
                     # Fallback to user repo
-                    repo = self.user.create_repo(
+                    repo = self._get_user().create_repo(
                         name=name,
                         description=description,
                         private=private,
                         auto_init=auto_init
                     )
             else:
-                repo = self.user.create_repo(
+                repo = self._get_user().create_repo(
                     name=name,
                     description=description,
                     private=private,
@@ -376,7 +381,7 @@ class GitHubService:
                 pass
         
         # Also include user repos
-        for repo in self.user.get_repos()[:limit]:
+        for repo in self._get_user().get_repos()[:limit]:
             repos.append({
                 "name": repo.full_name,
                 "url": repo.html_url,

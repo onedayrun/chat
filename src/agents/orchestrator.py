@@ -121,7 +121,7 @@ kod tutaj
 ```
 
 Gdy potrzebujesz narzędzia, używaj formatu JSON:
-{"tool": "nazwa_narzędzia", "params": {...}}
+{{"tool": "nazwa_narzędzia", "params": {{...}}}}
 
 AKTUALNA FAZA: {current_phase}
 KONTEKST PROJEKTU: {project_context}
@@ -308,17 +308,22 @@ KONTEKST PROJEKTU: {project_context}
             {"role": "system", "content": self._build_system_prompt()},
             *self.conversation_history
         ]
+
+        tools = None if settings.LLM_PROVIDER == "ollama" else self.TOOLS
         
         try:
             if stream:
-                response = await self._acompletion_with_fallback(
-                    model=self.model,
-                    messages=messages,
-                    tools=self.TOOLS,
-                    max_tokens=settings.MAX_TOKENS,
-                    temperature=settings.TEMPERATURE,
-                    stream=True
-                )
+                completion_kwargs = {
+                    "model": self.model,
+                    "messages": messages,
+                    "max_tokens": settings.MAX_TOKENS,
+                    "temperature": settings.TEMPERATURE,
+                    "stream": True,
+                }
+                if tools is not None:
+                    completion_kwargs["tools"] = tools
+
+                response = await self._acompletion_with_fallback(**completion_kwargs)
                 
                 full_response = ""
                 tool_calls = []
@@ -351,13 +356,16 @@ KONTEKST PROJEKTU: {project_context}
                     self.context.tokens_used += len(full_response.split()) * 1.3
                     
             else:
-                response = await self._acompletion_with_fallback(
-                    model=self.model,
-                    messages=messages,
-                    tools=self.TOOLS,
-                    max_tokens=settings.MAX_TOKENS,
-                    temperature=settings.TEMPERATURE
-                )
+                completion_kwargs = {
+                    "model": self.model,
+                    "messages": messages,
+                    "max_tokens": settings.MAX_TOKENS,
+                    "temperature": settings.TEMPERATURE,
+                }
+                if tools is not None:
+                    completion_kwargs["tools"] = tools
+
+                response = await self._acompletion_with_fallback(**completion_kwargs)
                 
                 content = response.choices[0].message.content
                 self.conversation_history.append({
