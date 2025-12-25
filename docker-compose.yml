@@ -1,12 +1,10 @@
 # OneDay.run Platform - Docker Compose
-version: '3.8'
-
 services:
   # Main application
   app:
     build: .
     ports:
-      - "8000:8000"
+      - "${APP_HOST_PORT:-18000}:8000"
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
@@ -14,8 +12,8 @@ services:
       - RAILWAY_TOKEN=${RAILWAY_TOKEN}
       - VERCEL_TOKEN=${VERCEL_TOKEN}
       - RENDER_API_KEY=${RENDER_API_KEY}
-      - DATABASE_URL=postgresql+asyncpg://oneday:oneday@db:5432/oneday
-      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://oneday:oneday@db:5432/oneday}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
     depends_on:
       - db
       - redis
@@ -33,14 +31,14 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-0}:5432"
     restart: unless-stopped
 
   # Redis Cache
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-0}:6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
@@ -49,7 +47,7 @@ services:
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
     ports:
-      - "4000:4000"
+      - "${LITELLM_HOST_PORT:-0}:4000"
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}

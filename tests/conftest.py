@@ -5,11 +5,78 @@ import pytest
 import asyncio
 from unittest.mock import Mock, patch
 import sys
+import types
+import inspect
 from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+
+
+try:
+    import github  # type: ignore
+except ModuleNotFoundError:
+    github = types.ModuleType("github")
+
+    class GithubException(Exception):
+        def __init__(self, status=None, data=None):
+            message = None
+            if isinstance(data, dict):
+                message = data.get("message")
+            super().__init__(message or "GithubException")
+            self.status = status
+            self.data = data
+
+    class Github:
+        def __init__(self, token=None):
+            self.token = token
+
+        def get_user(self):
+            user = Mock()
+            user.login = "stub-user"
+            return user
+
+        def get_organization(self, org):
+            raise GithubException(status=404, data={"message": "Not Found"})
+
+        def get_repo(self, repo):
+            return Mock()
+
+    github.Github = Github
+    github.GithubException = GithubException
+
+    repo_mod = types.ModuleType("github.Repository")
+
+    class Repository:  # noqa: B903
+        pass
+
+    repo_mod.Repository = Repository
+
+    content_mod = types.ModuleType("github.ContentFile")
+
+    class ContentFile:  # noqa: B903
+        pass
+
+    content_mod.ContentFile = ContentFile
+
+    sys.modules["github"] = github
+    sys.modules["github.Repository"] = repo_mod
+    sys.modules["github.ContentFile"] = content_mod
+
+
+try:
+    import litellm  # type: ignore
+except ModuleNotFoundError:
+    litellm = types.ModuleType("litellm")
+
+    async def acompletion(*args, **kwargs):
+        raise RuntimeError("litellm is not installed")
+
+    litellm.acompletion = acompletion
+    litellm.api_key = None
+    litellm.api_base = None
+    sys.modules["litellm"] = litellm
 
 
 @pytest.fixture(scope="session")
@@ -131,3 +198,32 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "slow: marks tests as slow")
     config.addinivalue_line("markers", "integration: marks tests as integration tests")
     config.addinivalue_line("markers", "e2e: marks tests as end-to-end tests")
+
+
+def pytest_pyfunc_call(pyfuncitem):
+    testfunction = pyfuncitem.obj
+    if not inspect.iscoroutinefunction(testfunction):
+        return None
+
+    loop = pyfuncitem.funcargs.get("event_loop")
+    if loop is None:
+        loop = asyncio.new_event_loop()
+        close_loop = True
+    else:
+        close_loop = False
+
+    old_loop = None
+    try:
+        try:
+            old_loop = asyncio.get_event_loop()
+        except RuntimeError:
+            old_loop = None
+
+        asyncio.set_event_loop(loop)
+        kwargs = {name: pyfuncitem.funcargs[name] for name in pyfuncitem._fixtureinfo.argnames}
+        loop.run_until_complete(testfunction(**kwargs))
+        return True
+    finally:
+        asyncio.set_event_loop(old_loop)
+        if close_loop:
+            loop.close()
