@@ -4,14 +4,17 @@ FastAPI application with WebSocket support for real-time chat
 """
 import asyncio
 import json
+import logging
+import os
+import time
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, BackgroundTasks
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from config.settings import settings
@@ -19,6 +22,19 @@ from src.agents.orchestrator import OrchestratorAgent, ProjectContext, ProjectPh
 from src.services.github_service import GitHubService
 from src.services.deployment_service import deployment_manager
 from src.components.library import component_library
+
+
+def _coerce_log_level(value: Any) -> int:
+    if isinstance(value, str) and value:
+        return getattr(logging, value.upper(), logging.INFO)
+    return logging.INFO
+
+
+logging.basicConfig(
+    level=_coerce_log_level(os.environ.get("LOG_LEVEL") or getattr(settings, "LOG_LEVEL", None)),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger("onedayrun")
 
 
 # Models
@@ -51,10 +67,12 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket, project_id: str):
         await websocket.accept()
         self.active_connections[project_id] = websocket
+        logger.info("ws_connected project_id=%s", project_id)
     
     def disconnect(self, project_id: str):
         if project_id in self.active_connections:
             del self.active_connections[project_id]
+        logger.info("ws_disconnected project_id=%s", project_id)
     
     async def send_message(self, project_id: str, message: dict):
         if project_id in self.active_connections:
@@ -74,12 +92,12 @@ manager = ConnectionManager()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    print(f"🚀 Starting {settings.APP_NAME} v{settings.APP_VERSION}")
-    print(f"📦 Components loaded: {len(component_library.components)}")
-    print(f"🌐 Deployment platforms: {deployment_manager.get_available_platforms()}")
+    logger.info("startup app=%s version=%s", settings.APP_NAME, settings.APP_VERSION)
+    logger.info("startup components_loaded=%s", len(component_library.components))
+    logger.info("startup deployment_platforms=%s", deployment_manager.get_available_platforms())
     yield
     # Shutdown
-    print("👋 Shutting down...")
+    logger.info("shutdown")
 
 
 # Create FastAPI app
@@ -117,6 +135,32 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def log_http_requests(request: Request, call_next):
+    start = time.monotonic()
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = int((time.monotonic() - start) * 1000)
+        logger.exception(
+            "http_error method=%s path=%s duration_ms=%s",
+            request.method,
+            request.url.path,
+            duration_ms,
+        )
+        raise
+
+    duration_ms = int((time.monotonic() - start) * 1000)
+    logger.info(
+        "http_request method=%s path=%s status=%s duration_ms=%s",
+        request.method,
+        request.url.path,
+        getattr(response, "status_code", None),
+        duration_ms,
+    )
+    return response
+
+
 # Dependencies
 def get_github_service() -> GitHubService:
     return GitHubService()
@@ -143,6 +187,11 @@ async def health():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
 
+@app.get("/favicon.ico")
+async def favicon():
+    return Response(status_code=204)
+
+
 # Project Management
 @app.post("/projects", response_model=ProjectResponse)
 async def create_project(
@@ -151,6 +200,13 @@ async def create_project(
 ):
     """Tworzy nowy projekt i rozpoczyna sesję"""
     project_id = str(uuid.uuid4())[:8]
+
+    logger.info(
+        "project_create project_id=%s client_name=%s tier=%s",
+        project_id,
+        project.client_name,
+        project.tier,
+    )
     
     # Initialize orchestrator
     services = {
@@ -303,6 +359,7 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
     
     agent = manager.projects.get(project_id)
     if not agent:
+        logger.warning("ws_project_not_found project_id=%s", project_id)
         await websocket.send_json({
             "type": "error",
             "content": "Project not found. Create a project first via POST /projects"
@@ -321,9 +378,16 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
         while True:
             # Receive message
             data = await websocket.receive_json()
+            logger.info("ws_message_received project_id=%s type=%s", project_id, data.get("type"))
             
             if data.get("type") == "message":
                 user_message = data.get("content", "")
+
+                logger.info(
+                    "ws_user_message project_id=%s chars=%s",
+                    project_id,
+                    len(user_message or ""),
+                )
                 
                 # Send typing indicator
                 await websocket.send_json({
@@ -393,6 +457,7 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
     except WebSocketDisconnect:
         manager.disconnect(project_id)
     except Exception as e:
+        logger.exception("ws_error project_id=%s", project_id)
         await websocket.send_json({
             "type": "error",
             "content": str(e)
@@ -404,7 +469,7 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
 @app.get("/chat", response_class=HTMLResponse)
 @app.get("/chat/", response_class=HTMLResponse)
 async def chat_create_ui():
-    return """
+    return r"""
 <!DOCTYPE html>
 <html>
 <head>
@@ -582,7 +647,7 @@ async def chat_ui(project_id: str):
 </body>
 </html>
 """
-    return f"""
+    return fr"""
 <!DOCTYPE html>
 <html>
 <head>
@@ -601,8 +666,20 @@ async def chat_ui(project_id: str):
         .message.system {{ background: #1a1a2e; border: 1px solid #e94560; text-align: center; max-width: 100%; }}
         .message.meta {{ background: #16213e; border: 1px dashed #0f3460; max-width: 100%; }}
         .message.deployment {{ background: #16213e; border: 1px solid #22c55e; max-width: 100%; }}
-        .message pre {{ background: #0d0d0d; padding: 10px; border-radius: 5px; overflow-x: auto; margin-top: 10px; }}
+        .message pre {{ background: #0d0d0d; padding: 10px; border-radius: 5px; overflow-x: auto; margin: 10px 0; }}
         .message code {{ font-family: 'Fira Code', monospace; font-size: 0.9rem; }}
+        .message .msg-body {{ line-height: 1.5; }}
+        .message .msg-body p {{ margin: 0 0 12px 0; }}
+        .message .msg-body p:last-child {{ margin-bottom: 0; }}
+        .message .msg-body h1, .message .msg-body h2, .message .msg-body h3 {{ margin: 12px 0 10px; color: #fff; }}
+        .message .msg-body h1 {{ font-size: 1.1rem; }}
+        .message .msg-body h2 {{ font-size: 1.0rem; }}
+        .message .msg-body h3 {{ font-size: 0.95rem; }}
+        .message .msg-body ul, .message .msg-body ol {{ margin: 0 0 12px 20px; padding: 0; }}
+        .message .msg-body li {{ margin: 4px 0; }}
+        .message .msg-body blockquote {{ margin: 10px 0; padding-left: 12px; border-left: 3px solid #0f3460; color: #cbd5e1; }}
+        .message .msg-body a {{ color: #e94560; text-decoration: underline; }}
+        .message .msg-body code {{ background: #0d0d0d; border: 1px solid #0f3460; padding: 2px 6px; border-radius: 6px; }}
         .input-area {{ background: #16213e; padding: 20px; border-top: 1px solid #0f3460; }}
         .input-area form {{ display: flex; gap: 10px; }}
         .input-area input {{ flex: 1; padding: 15px; border: none; border-radius: 10px; background: #0f3460; color: #eee; font-size: 1rem; }}
@@ -659,12 +736,145 @@ async def chat_ui(project_id: str):
             return div.innerHTML;
         }}
 
-        function renderInline(text) {{
-            let html = escapeHtml(String(text || ''));
+        function applyInlineMarkdown(escapedText) {{
+            let html = String(escapedText || '');
+
+            const codeSpans = [];
+            html = html.replace(/`([^`]+)`/g, (match, code) => {{
+                const idx = codeSpans.length;
+                codeSpans.push('<code>' + code + '</code>');
+                return '@@CODE' + idx + '@@';
+            }});
+
             html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-            html = html.replace(/\n/g, '<br>');
+            html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+            html = html.replace(/@@CODE(\d+)@@/g, (match, idx) => {{
+                return codeSpans[Number(idx)] || match;
+            }});
             return html;
+        }}
+
+        function renderInline(text) {{
+            const escaped = escapeHtml(String(text || ''));
+            return applyInlineMarkdown(escaped).replace(/\n/g, '<br>');
+        }}
+
+        function renderMarkdownBlock(text) {{
+            const raw = String(text || '').replace(/\r\n/g, '\n');
+            const lines = raw.split('\n');
+
+            const out = [];
+            let inUl = false;
+            let inOl = false;
+            let inBlockquote = false;
+            let paragraph = [];
+
+            function flushParagraph() {{
+                const content = paragraph.join(' ').trim();
+                if (!content) {{
+                    paragraph = [];
+                    return;
+                }}
+                const escaped = escapeHtml(content);
+                out.push('<p>' + applyInlineMarkdown(escaped) + '</p>');
+                paragraph = [];
+            }}
+
+            function closeLists() {{
+                if (inUl) {{
+                    out.push('</ul>');
+                    inUl = false;
+                }}
+                if (inOl) {{
+                    out.push('</ol>');
+                    inOl = false;
+                }}
+            }}
+
+            function closeBlockquote() {{
+                if (!inBlockquote) return;
+                flushParagraph();
+                out.push('</blockquote>');
+                inBlockquote = false;
+            }}
+
+            for (const line of lines) {{
+                const trimmed = line.trim();
+
+                if (!trimmed) {{
+                    flushParagraph();
+                    closeLists();
+                    continue;
+                }}
+
+                const heading = trimmed.match(/^(#{{1,3}})\s+(.*)$/);
+                if (heading) {{
+                    closeBlockquote();
+                    flushParagraph();
+                    closeLists();
+                    const level = heading[1].length;
+                    const content = applyInlineMarkdown(escapeHtml(heading[2] || ''));
+                    out.push('<h' + level + '>' + content + '</h' + level + '>');
+                    continue;
+                }}
+
+                const bq = trimmed.match(/^>\s+(.*)$/);
+                if (bq) {{
+                    flushParagraph();
+                    closeLists();
+                    if (!inBlockquote) {{
+                        out.push('<blockquote>');
+                        inBlockquote = true;
+                    }}
+                    paragraph.push(bq[1]);
+                    continue;
+                }}
+
+                if (inBlockquote) {{
+                    closeBlockquote();
+                }}
+
+                const ul = trimmed.match(/^[-*]\s+(.*)$/);
+                if (ul) {{
+                    flushParagraph();
+                    if (inOl) {{
+                        out.push('</ol>');
+                        inOl = false;
+                    }}
+                    if (!inUl) {{
+                        out.push('<ul>');
+                        inUl = true;
+                    }}
+                    out.push('<li>' + applyInlineMarkdown(escapeHtml(ul[1] || '')) + '</li>');
+                    continue;
+                }}
+
+                const ol = trimmed.match(/^\d+\.\s+(.*)$/);
+                if (ol) {{
+                    flushParagraph();
+                    if (inUl) {{
+                        out.push('</ul>');
+                        inUl = false;
+                    }}
+                    if (!inOl) {{
+                        out.push('<ol>');
+                        inOl = true;
+                    }}
+                    out.push('<li>' + applyInlineMarkdown(escapeHtml(ol[1] || '')) + '</li>');
+                    continue;
+                }}
+
+                if (inUl || inOl) {{
+                    closeLists();
+                }}
+                paragraph.push(trimmed);
+            }}
+
+            closeBlockquote();
+            flushParagraph();
+            closeLists();
+            return out.join('');
         }}
 
         function renderContent(text) {{
@@ -675,13 +885,13 @@ async def chat_ui(project_id: str):
             let m;
             while ((m = re.exec(raw)) !== null) {{
                 const before = raw.slice(lastIndex, m.index);
-                if (before) parts.push(renderInline(before));
+                if (before) parts.push(renderMarkdownBlock(before));
                 const code = m[2] || '';
-                parts.push(`<pre><code>${{escapeHtml(code)}}</code></pre>`);
+                parts.push('<pre><code>' + escapeHtml(code) + '</code></pre>');
                 lastIndex = re.lastIndex;
             }}
             const tail = raw.slice(lastIndex);
-            if (tail) parts.push(renderInline(tail));
+            if (tail) parts.push(renderMarkdownBlock(tail));
 
             const joined = parts.join('');
 
@@ -689,7 +899,7 @@ async def chat_ui(project_id: str):
                 const jsonCandidate = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
                 try {{
                     const obj = JSON.parse(jsonCandidate);
-                    return joined + `<div class="progress" style="margin-top:10px;"><strong>Tool call:</strong><pre><code>${{escapeHtml(JSON.stringify(obj, null, 2))}}</code></pre></div>`;
+                    return joined + '<div class="progress" style="margin-top:10px;"><strong>Tool call:</strong><pre><code>' + escapeHtml(JSON.stringify(obj, null, 2)) + '</code></pre></div>';
                 }} catch (e) {{
                     return joined;
                 }}
@@ -771,7 +981,8 @@ async def chat_ui(project_id: str):
         }}
         
         function connect() {{
-            ws = new WebSocket(`ws://${{window.location.host}}/ws/${{projectId}}`);
+            const scheme = (window.location.protocol === 'https:') ? 'wss://' : 'ws://';
+            ws = new WebSocket(scheme + window.location.host + '/ws/' + projectId);
             
             ws.onopen = () => {{
                 statusDiv.textContent = '🟢 Connected';
@@ -852,7 +1063,7 @@ async def chat_ui(project_id: str):
 
         function addMessage(content, type) {{
             const div = document.createElement('div');
-            div.className = `message ${{type}}`;
+            div.className = 'message ' + String(type || '');
 
             const controls = document.createElement('div');
             controls.className = 'msg-controls';
@@ -886,14 +1097,26 @@ async def chat_ui(project_id: str):
             
             const div = document.createElement('div');
             div.className = 'progress progress-display';
-            div.innerHTML = `
-                <strong>Progress:</strong> ${{progress.progress_percent || 0}}% | 
-                <strong>Phase:</strong> ${{progress.current_phase || 'discovery'}} | 
-                <strong>Files:</strong> ${{progress.files_generated || 0}} |
-                <strong>Tokens:</strong> ${{Math.round(progress.tokens_used || 0)}}
-                ${{progress.github_repo ? `| <strong>Repo:</strong> ${{progress.github_repo}}` : ''}}
-                ${{progress.deployment_url ? `| <a href="${{progress.deployment_url}}" target="_blank" style="color:#e94560">🌐 Live</a>` : ''}}
-            `;
+
+            const progressPercent = (progress && progress.progress_percent !== undefined && progress.progress_percent !== null) ? progress.progress_percent : 0;
+            const phase = (progress && progress.current_phase) ? progress.current_phase : 'discovery';
+            const files = (progress && progress.files_generated !== undefined && progress.files_generated !== null) ? progress.files_generated : 0;
+            const tokens = Math.round((progress && progress.tokens_used) ? progress.tokens_used : 0);
+
+            const repoPart = (progress && progress.github_repo)
+                ? (' | <strong>Repo:</strong> ' + escapeHtml(String(progress.github_repo)))
+                : '';
+
+            const livePart = (progress && progress.deployment_url)
+                ? (' | <a href="' + escapeHtml(String(progress.deployment_url)) + '" target="_blank" rel="noopener noreferrer" style="color:#e94560">🌐 Live</a>')
+                : '';
+
+            div.innerHTML = '<strong>Progress:</strong> ' + progressPercent + '% | '
+                + '<strong>Phase:</strong> ' + escapeHtml(String(phase)) + ' | '
+                + '<strong>Files:</strong> ' + files + ' | '
+                + '<strong>Tokens:</strong> ' + tokens
+                + repoPart
+                + livePart;
             messagesDiv.appendChild(div);
         }}
         

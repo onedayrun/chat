@@ -61,6 +61,13 @@ async def test_e2e_http_and_websocket_flow():
             assert f"OneDay.run Chat - {project_id}" in html
             assert f"const projectId = \"{project_id}\"" in html
 
+            assert "replace(/\\n/g, '<br>')" in html
+            assert "replace(/\\r\\n/g, '\\n')" in html
+
+            assert "new WebSocket(`" not in html
+            assert "div.className = `message" not in html
+            assert "div.innerHTML = `" not in html
+
         ws_url = base_url.replace("http://", "ws://").replace("https://", "wss://")
         ws_url = f"{ws_url}/ws/{project_id}"
 

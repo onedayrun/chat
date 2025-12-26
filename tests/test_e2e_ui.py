@@ -44,9 +44,25 @@ def test_ui_screenshots():
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1280, "height": 720})
 
+        page_errors = []
+        console_errors = []
+
+        def on_page_error(err):
+            page_errors.append(str(err))
+
+        def on_console(msg):
+            if msg.type == "error":
+                console_errors.append(msg.text)
+
+        page.on("pageerror", on_page_error)
+        page.on("console", on_console)
+
         docs_resp = page.goto(f"{base_url}/docs", wait_until="domcontentloaded")
         assert docs_resp is not None and docs_resp.ok
         page.screenshot(path=str(out_dir / "docs.png"), full_page=True)
+
+        page_errors.clear()
+        console_errors.clear()
 
         chat_resp = page.goto(f"{base_url}/chat/{project_id}", wait_until="domcontentloaded")
         assert chat_resp is not None and chat_resp.ok
@@ -59,5 +75,8 @@ def test_ui_screenshots():
         except Exception:
             pass
         page.screenshot(path=str(out_dir / f"chat-{project_id}.png"), full_page=True)
+
+        assert not page_errors, "Chat page JS errors: " + " | ".join(page_errors)
+        assert not console_errors, "Chat page console errors: " + " | ".join(console_errors)
 
         browser.close()
