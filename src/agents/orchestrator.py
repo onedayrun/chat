@@ -5,6 +5,8 @@ Zarządza całym procesem realizacji zamówienia
 """
 import asyncio
 import json
+import os
+from urllib.parse import urlparse, urlunparse
 from typing import Optional, Dict, Any, List, AsyncGenerator
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -239,7 +241,13 @@ KONTEKST PROJEKTU: {project_context}
             if settings.LITELLM_API_KEY:
                 litellm.api_key = settings.LITELLM_API_KEY
         elif settings.LLM_PROVIDER == "ollama":
-            litellm.api_base = settings.OLLAMA_BASE_URL
+            ollama_base = settings.OLLAMA_BASE_URL
+            if os.path.exists("/.dockerenv"):
+                parsed = urlparse(ollama_base)
+                if parsed.hostname in {"localhost", "127.0.0.1"}:
+                    port = parsed.port or 11434
+                    ollama_base = urlunparse(parsed._replace(netloc=f"host.docker.internal:{port}"))
+            litellm.api_base = ollama_base
             litellm.api_key = None
             self.model = settings.OLLAMA_MODEL
         else:

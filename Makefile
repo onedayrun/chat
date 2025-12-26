@@ -1,6 +1,6 @@
 # OneDay.run Platform - Makefile
 
-.PHONY: help install dev test e2e e2e-ui playwright-install build publish publish-test coverage lint format run docker-up docker-bg docker-down stop logs clean
+.PHONY: help install dev test e2e e2e-ui playwright-install build publish publish-test coverage lint format run docker-up docker-bg docker-down docker-health docker-wait stop logs clean
 
 # Default target
 help:
@@ -31,7 +31,7 @@ test:
 # Run end-to-end tests (requires running app)
 e2e:
 	docker-compose up -d app
-	docker-compose exec -T app python -c 'import time,urllib.request; exec("url=\"http://localhost:8000/health\"\nlast=None\nfor _ in range(60):\n    try:\n        urllib.request.urlopen(url, timeout=2).read(); break\n    except Exception as e:\n        last=e; time.sleep(1)\nelse:\n    raise SystemExit(\"App did not become healthy: %r\" % (last,))\n")'
+	$(MAKE) docker-wait
 	docker-compose exec -T app env E2E_BASE_URL=http://localhost:8000 pytest tests/ -v -m e2e
 
 playwright-install:
@@ -57,15 +57,16 @@ format:
 
 # Run development server
 run:
-	python -m dotenv run -- bash -lc 'uvicorn src.main:app --reload --host 0.0.0.0 --port $${APP_HOST_PORT:-8000}'
+	python -m dotenv run -- bash -c 'uvicorn src.main:app --reload --host 0.0.0.0 --port $${APP_HOST_PORT:-8000}'
 
 # Build and run with Docker
 docker-up:
 	docker-compose up --build -d
+	$(MAKE) docker-wait
 
 # Docker in background
 docker-bg:
-	docker-compose up --build -d
+	$(MAKE) docker-up
 
 # Stop Docker
 docker-down:
@@ -77,6 +78,35 @@ stop: docker-down
 # View logs
 logs:
 	docker-compose logs -f
+
+docker-health:
+	@for svc in app db redis litellm; do \
+	  cid=$$(docker-compose ps -q $$svc 2>/dev/null); \
+	  if [ -z "$$cid" ]; then \
+	    echo "$$svc: not running"; \
+	  else \
+	    status=$$(docker inspect -f '{{.State.Status}}' $$cid 2>/dev/null || echo unknown); \
+	    health=$$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' $$cid 2>/dev/null || echo none); \
+	    echo "$$svc: $$status (health=$$health)"; \
+	  fi; \
+	done
+
+docker-wait:
+	@set -e; \
+	services="db redis app"; \
+	if docker-compose ps -q litellm >/dev/null 2>&1 && [ -n "$$(docker-compose ps -q litellm)" ]; then services="$$services litellm"; fi; \
+	for svc in $$services; do \
+	  echo "Waiting for $$svc to be healthy..."; \
+	  for i in $$(seq 1 60); do \
+	    cid=$$(docker-compose ps -q $$svc 2>/dev/null); \
+	    if [ -z "$$cid" ]; then sleep 1; continue; fi; \
+	    health=$$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' $$cid 2>/dev/null || echo none); \
+	    if [ "$$health" = "healthy" ]; then echo "$$svc: healthy"; break; fi; \
+	    if [ $$i -eq 60 ]; then echo "$$svc: not healthy (health=$$health)"; exit 1; fi; \
+	    sleep 1; \
+	  done; \
+	done; \
+	$(MAKE) docker-health
 
 # Clean build artifacts
 clean:

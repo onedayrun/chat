@@ -91,12 +91,21 @@ app = FastAPI(
 )
 
 # CORS
+
+
+def _parse_csv(value: str) -> List[str]:
+    v = (value or "").strip()
+    if not v or v == "*":
+        return ["*"]
+    return [part.strip() for part in v.split(",") if part.strip()]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_parse_csv(settings.CORS_ALLOW_ORIGINS),
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+    allow_methods=_parse_csv(settings.CORS_ALLOW_METHODS),
+    allow_headers=_parse_csv(settings.CORS_ALLOW_HEADERS),
 )
 
 
@@ -384,9 +393,187 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
 
 
 # Simple chat UI for testing
+@app.get("/chat", response_class=HTMLResponse)
+@app.get("/chat/", response_class=HTMLResponse)
+async def chat_create_ui():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OneDay.run - Create Project</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; }
+        .container { max-width: 900px; margin: 0 auto; height: 100vh; display: flex; flex-direction: column; }
+        .header { background: #16213e; padding: 20px; border-bottom: 1px solid #0f3460; }
+        .header h1 { color: #e94560; font-size: 1.5rem; }
+        .header .status { font-size: 0.9rem; margin-top: 5px; }
+        .content { flex: 1; padding: 20px; }
+        .card { background: #16213e; border: 1px solid #0f3460; border-radius: 10px; padding: 20px; }
+        label { display: block; font-size: 0.9rem; margin-top: 12px; margin-bottom: 6px; color: #ccc; }
+        input, select, textarea { width: 100%; padding: 12px; border: none; border-radius: 10px; background: #0f3460; color: #eee; font-size: 1rem; }
+        textarea { min-height: 140px; resize: vertical; }
+        .actions { display: flex; gap: 10px; margin-top: 16px; }
+        button { padding: 12px 18px; background: #e94560; border: none; border-radius: 10px; color: #fff; font-weight: bold; cursor: pointer; }
+        button:hover { background: #ff6b6b; }
+        .muted { color: #aaa; font-size: 0.9rem; margin-top: 10px; }
+        .error { margin-top: 12px; padding: 12px; border-radius: 10px; background: #1a1a2e; border: 1px solid #e94560; display: none; }
+        a { color: #e94560; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 OneDay.run Platform</h1>
+            <div class="status" id="status">Create a project to start chatting</div>
+        </div>
+        <div class="content">
+            <div class="card">
+                <form id="form">
+                    <label for="client_name">Client name</label>
+                    <input id="client_name" name="client_name" type="text" value="tom" required />
+
+                    <label for="tier">Tier</label>
+                    <select id="tier" name="tier" required>
+                        <option value="1h">1h</option>
+                        <option value="8h">8h</option>
+                        <option value="24h">24h</option>
+                        <option value="36h">36h</option>
+                        <option value="48h">48h</option>
+                        <option value="72h">72h</option>
+                    </select>
+
+                    <label for="initial_message">Initial message</label>
+                    <textarea id="initial_message" name="initial_message" placeholder="Opisz co chcesz zbudować..." required></textarea>
+
+                    <div class="actions">
+                        <button type="submit" id="submit">Create & Open Chat</button>
+                        <button type="button" id="openDocs">Open API Docs</button>
+                    </div>
+
+                    <div class="muted">
+                        This page calls <code>POST /projects</code> and redirects to <code>/chat/&lt;project_id&gt;</code>.
+                    </div>
+                    <div class="error" id="error"></div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('form');
+        const submitBtn = document.getElementById('submit');
+        const openDocsBtn = document.getElementById('openDocs');
+        const statusDiv = document.getElementById('status');
+        const errorDiv = document.getElementById('error');
+
+        function showError(message) {
+            errorDiv.style.display = 'block';
+            errorDiv.textContent = message;
+        }
+
+        openDocsBtn.onclick = () => {
+            window.location.href = '/docs';
+        };
+
+        form.onsubmit = async (e) => {
+            e.preventDefault();
+            errorDiv.style.display = 'none';
+
+            const clientName = document.getElementById('client_name').value.trim();
+            const tier = document.getElementById('tier').value;
+            const initialMessage = document.getElementById('initial_message').value.trim();
+
+            if (!clientName || !tier || !initialMessage) {
+                showError('Please fill all fields.');
+                return;
+            }
+
+            submitBtn.disabled = true;
+            statusDiv.textContent = 'Creating project...';
+
+            try {
+                const res = await fetch('/projects', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({
+                        client_name: clientName,
+                        tier: tier,
+                        initial_message: initialMessage
+                    })
+                });
+
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(text || `HTTP ${res.status}`);
+                }
+
+                const data = await res.json();
+                if (!data.project_id) {
+                    throw new Error('Missing project_id in response');
+                }
+
+                statusDiv.textContent = 'Project created. Redirecting...';
+                window.location.href = `/chat/${data.project_id}`;
+            } catch (err) {
+                showError(String(err));
+                statusDiv.textContent = 'Failed to create project';
+            } finally {
+                submitBtn.disabled = false;
+            }
+        };
+    </script>
+</body>
+</html>
+"""
+
 @app.get("/chat/{project_id}", response_class=HTMLResponse)
+@app.get("/chat/{project_id}/", response_class=HTMLResponse)
 async def chat_ui(project_id: str):
     """Simple chat UI for testing"""
+    if project_id not in manager.projects:
+        return f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OneDay.run - Project not found</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; }}
+        .container {{ max-width: 900px; margin: 0 auto; height: 100vh; display: flex; flex-direction: column; }}
+        .header {{ background: #16213e; padding: 20px; border-bottom: 1px solid #0f3460; }}
+        .header h1 {{ color: #e94560; font-size: 1.5rem; }}
+        .content {{ flex: 1; padding: 20px; }}
+        .card {{ background: #16213e; border: 1px solid #e94560; border-radius: 10px; padding: 20px; }}
+        a {{ color: #e94560; }}
+        code {{ font-family: 'Fira Code', monospace; font-size: 0.95rem; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 OneDay.run Platform</h1>
+        </div>
+        <div class="content">
+            <div class="card">
+                <h2 style="margin-bottom: 10px;">❌ Project not found</h2>
+                <div style="margin-bottom: 12px; color: #ccc;">
+                    Project ID: <code>{project_id}</code>
+                </div>
+                <div style="margin-bottom: 12px; color: #ccc;">
+                    Ten serwer trzyma projekty w pamięci. Najpierw utwórz projekt przez Web UI:
+                    <a href="/chat">/chat</a>
+                    albo przez <a href="/docs">/docs</a> (POST <code>/projects</code>).
+                </div>
+                <div style="color: #aaa;">
+                    Po utworzeniu projektu dostaniesz prawidłowe <code>project_id</code> i wtedy dopiero działa <code>/chat/&lt;project_id&gt;</code>.
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+"""
     return f"""
 <!DOCTYPE html>
 <html>
@@ -404,6 +591,8 @@ async def chat_ui(project_id: str):
         .message.user {{ background: #0f3460; margin-left: auto; }}
         .message.assistant {{ background: #16213e; border: 1px solid #0f3460; }}
         .message.system {{ background: #1a1a2e; border: 1px solid #e94560; text-align: center; max-width: 100%; }}
+        .message.meta {{ background: #16213e; border: 1px dashed #0f3460; max-width: 100%; }}
+        .message.deployment {{ background: #16213e; border: 1px solid #22c55e; max-width: 100%; }}
         .message pre {{ background: #0d0d0d; padding: 10px; border-radius: 5px; overflow-x: auto; margin-top: 10px; }}
         .message code {{ font-family: 'Fira Code', monospace; font-size: 0.9rem; }}
         .input-area {{ background: #16213e; padding: 20px; border-top: 1px solid #0f3460; }}
@@ -411,8 +600,12 @@ async def chat_ui(project_id: str):
         .input-area input {{ flex: 1; padding: 15px; border: none; border-radius: 10px; background: #0f3460; color: #eee; font-size: 1rem; }}
         .input-area button {{ padding: 15px 30px; background: #e94560; border: none; border-radius: 10px; color: #fff; font-weight: bold; cursor: pointer; }}
         .input-area button:hover {{ background: #ff6b6b; }}
+        .input-area button.btn-icon {{ padding: 15px 16px; min-width: 54px; }}
         .progress {{ background: #0f3460; padding: 10px; border-radius: 5px; margin-top: 10px; font-size: 0.8rem; }}
         .typing {{ color: #888; font-style: italic; }}
+        .msg-controls {{ display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 6px; }}
+        .msg-controls button {{ background: transparent; border: 1px solid #0f3460; color: #eee; padding: 6px 8px; border-radius: 8px; cursor: pointer; }}
+        .msg-controls button:hover {{ border-color: #e94560; color: #e94560; }}
     </style>
 </head>
 <body>
@@ -424,6 +617,8 @@ async def chat_ui(project_id: str):
         <div class="messages" id="messages"></div>
         <div class="input-area">
             <form id="form">
+                <button type="button" id="micBtn" class="btn-icon">🎤</button>
+                <button type="button" id="ttsToggleBtn" class="btn-icon">🔊</button>
                 <input type="text" id="input" placeholder="Opisz co chcesz zbudować..." autocomplete="off" />
                 <button type="submit">Wyślij</button>
             </form>
@@ -435,9 +630,137 @@ async def chat_ui(project_id: str):
         const form = document.getElementById('form');
         const input = document.getElementById('input');
         const statusDiv = document.getElementById('status');
+        const enableSTT = {str(settings.UI_ENABLE_STT).lower()};
+        const enableTTS = {str(settings.UI_ENABLE_TTS).lower()};
+        const micBtn = document.getElementById('micBtn');
+        const ttsToggleBtn = document.getElementById('ttsToggleBtn');
         
         let ws;
         let currentResponse = null;
+        let ttsEnabled = enableTTS;
+        let recognition = null;
+
+        function setButtonVisibility() {{
+            if (micBtn) micBtn.style.display = enableSTT ? '' : 'none';
+            if (ttsToggleBtn) ttsToggleBtn.style.display = enableTTS ? '' : 'none';
+        }}
+
+        function escapeHtml(text) {{
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }}
+
+        function renderInline(text) {{
+            let html = escapeHtml(String(text || ''));
+            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            html = html.replace(/\n/g, '<br>');
+            return html;
+        }}
+
+        function renderContent(text) {{
+            const raw = String(text || '');
+            const parts = [];
+            const re = /```(\w+)?\n([\s\S]*?)```/g;
+            let lastIndex = 0;
+            let m;
+            while ((m = re.exec(raw)) !== null) {{
+                const before = raw.slice(lastIndex, m.index);
+                if (before) parts.push(renderInline(before));
+                const code = m[2] || '';
+                parts.push(`<pre><code>${{escapeHtml(code)}}</code></pre>`);
+                lastIndex = re.lastIndex;
+            }}
+            const tail = raw.slice(lastIndex);
+            if (tail) parts.push(renderInline(tail));
+
+            const joined = parts.join('');
+
+            if (raw.includes('"tool"') && raw.includes('{') && raw.includes('}')) {{
+                const jsonCandidate = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
+                try {{
+                    const obj = JSON.parse(jsonCandidate);
+                    return joined + `<div class="progress" style="margin-top:10px;"><strong>Tool call:</strong><pre><code>${{escapeHtml(JSON.stringify(obj, null, 2))}}</code></pre></div>`;
+                }} catch (e) {{
+                    return joined;
+                }}
+            }}
+
+            return joined;
+        }}
+
+        function speakText(text) {{
+            if (!ttsEnabled) return;
+            if (!('speechSynthesis' in window)) return;
+            const utter = new SpeechSynthesisUtterance(String(text || ''));
+            utter.lang = 'pl-PL';
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.speak(utter);
+        }}
+
+        function stopSpeak() {{
+            if (!('speechSynthesis' in window)) return;
+            window.speechSynthesis.cancel();
+        }}
+
+        function toggleTTS() {{
+            ttsEnabled = !ttsEnabled;
+            if (!ttsEnabled) stopSpeak();
+            if (ttsToggleBtn) ttsToggleBtn.textContent = ttsEnabled ? '🔊' : '🔇';
+        }}
+
+        function initSTT() {{
+            if (!enableSTT) return;
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {{
+                if (micBtn) micBtn.style.display = 'none';
+                return;
+            }}
+            recognition = new SpeechRecognition();
+            recognition.lang = 'pl-PL';
+            recognition.interimResults = true;
+            recognition.continuous = false;
+
+            recognition.onresult = (event) => {{
+                let transcript = '';
+                for (let i = event.resultIndex; i < event.results.length; i++) {{
+                    transcript += event.results[i][0].transcript;
+                }}
+                input.value = transcript.trim();
+            }};
+            recognition.onend = () => {{
+                if (micBtn) micBtn.textContent = '🎤';
+            }};
+            recognition.onerror = () => {{
+                if (micBtn) micBtn.textContent = '🎤';
+            }};
+        }}
+
+        function toggleSTT() {{
+            if (!recognition) return;
+            try {{
+                if (micBtn && micBtn.textContent === '⏹') {{
+                    recognition.stop();
+                    micBtn.textContent = '🎤';
+                }} else {{
+                    if (micBtn) micBtn.textContent = '⏹';
+                    recognition.start();
+                }}
+            }} catch (e) {{
+                if (micBtn) micBtn.textContent = '🎤';
+            }}
+        }}
+
+        setButtonVisibility();
+        if (enableTTS && ttsToggleBtn) {{
+            ttsToggleBtn.onclick = toggleTTS;
+            ttsToggleBtn.textContent = ttsEnabled ? '🔊' : '🔇';
+        }}
+        if (enableSTT && micBtn) {{
+            initSTT();
+            micBtn.onclick = toggleSTT;
+        }}
         
         function connect() {{
             ws = new WebSocket(`ws://${{window.location.host}}/ws/${{projectId}}`);
@@ -472,32 +795,81 @@ async def chat_ui(project_id: str):
                     break;
                 case 'response_chunk':
                     if (currentResponse) {{
-                        currentResponse.innerHTML += escapeHtml(data.content);
+                        currentResponse.raw += String(data.content || '');
+                        currentResponse.body.innerHTML = renderInline(currentResponse.raw);
                         messagesDiv.scrollTop = messagesDiv.scrollHeight;
                     }}
                     break;
                 case 'response_end':
+                    if (currentResponse) {{
+                        const full = data.full_content || currentResponse.raw;
+                        currentResponse.raw = String(full || '');
+                        currentResponse.body.innerHTML = renderContent(currentResponse.raw);
+                        if (currentResponse.speakBtn) {{
+                            currentResponse.speakBtn.onclick = () => speakText(currentResponse.raw);
+                        }}
+                    }}
                     currentResponse = null;
                     break;
                 case 'typing':
-                    // Show typing indicator
+                    if (data.content) {{
+                        statusDiv.textContent = '🟢 Connected (typing...)';
+                        statusDiv.style.color = '#0f0';
+                    }} else {{
+                        statusDiv.textContent = '🟢 Connected';
+                        statusDiv.style.color = '#0f0';
+                    }}
                     break;
                 case 'progress':
                     addProgress(data.data);
                     break;
+                case 'status':
+                    addProgress(data.data);
+                    addMessage(JSON.stringify(data.data, null, 2), 'meta');
+                    break;
+                case 'components':
+                    addMessage(JSON.stringify(data.data, null, 2), 'meta');
+                    break;
+                case 'deployment':
+                    addMessage(JSON.stringify(data.data, null, 2), 'deployment');
+                    break;
                 case 'error':
-                    addMessage('❌ ' + data.content, 'system');
+                    addMessage('❌ ' + (data.content || ''), 'system');
+                    break;
+                default:
+                    addMessage(JSON.stringify(data, null, 2), 'meta');
                     break;
             }}
         }}
-        
+
         function addMessage(content, type) {{
             const div = document.createElement('div');
             div.className = `message ${{type}}`;
-            div.innerHTML = formatContent(content);
+
+            const controls = document.createElement('div');
+            controls.className = 'msg-controls';
+
+            const body = document.createElement('div');
+            body.className = 'msg-body';
+
+            const raw = String((content === undefined || content === null) ? '' : content);
+            body.innerHTML = renderContent(raw);
+
+            let speakBtn = null;
+            if (type === 'assistant' && enableTTS) {{
+                speakBtn = document.createElement('button');
+                speakBtn.type = 'button';
+                speakBtn.textContent = '🔊';
+                speakBtn.onclick = () => speakText(raw);
+                controls.appendChild(speakBtn);
+            }}
+
+            if (controls.childNodes.length) div.appendChild(controls);
+            div.appendChild(body);
+
             messagesDiv.appendChild(div);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
-            return div;
+            return {{ root: div, body, raw, speakBtn }};
         }}
         
         function addProgress(progress) {{
@@ -517,16 +889,7 @@ async def chat_ui(project_id: str):
             messagesDiv.appendChild(div);
         }}
         
-        function formatContent(content) {{
-            // Format code blocks
-            return content.replace(/```(\\w+)?\\n([\\s\\S]*?)```/g, '<pre><code>$2</code></pre>');
-        }}
-        
-        function escapeHtml(text) {{
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }}
+        // escapeHtml defined above
         
         form.onsubmit = (e) => {{
             e.preventDefault();
@@ -547,4 +910,4 @@ async def chat_ui(project_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8003)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

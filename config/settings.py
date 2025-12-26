@@ -35,6 +35,14 @@ class Settings(BaseSettings):
     MAX_TOKENS: int = 8192
     TEMPERATURE: float = 0.7
 
+    CORS_ALLOW_ORIGINS: str = "*"
+    CORS_ALLOW_CREDENTIALS: bool = True
+    CORS_ALLOW_METHODS: str = "*"
+    CORS_ALLOW_HEADERS: str = "*"
+
+    UI_ENABLE_STT: bool = True
+    UI_ENABLE_TTS: bool = True
+
     # Ollama (local)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "ollama/llama3.1:8b"
