@@ -880,13 +880,15 @@ async def chat_ui(project_id: str):
         function renderContent(text) {{
             const raw = String(text || '');
             const parts = [];
-            const re = /```(\w+)?\n([\s\S]*?)```/g;
+            const re = /```([^\r\n`]*)\r?\n([\s\S]*?)```/g;
             let lastIndex = 0;
             let m;
             while ((m = re.exec(raw)) !== null) {{
                 const before = raw.slice(lastIndex, m.index);
                 if (before) parts.push(renderMarkdownBlock(before));
-                const code = m[2] || '';
+                const info = String(m[1] || '').trimEnd();
+                const body = m[2] || '';
+                const code = info ? (info + '\n' + body) : body;
                 parts.push('<pre><code>' + escapeHtml(code) + '</code></pre>');
                 lastIndex = re.lastIndex;
             }}
@@ -1029,6 +1031,10 @@ async def chat_ui(project_id: str):
                         }}
                     }}
                     currentResponse = null;
+                    if (ws && ws.readyState === WebSocket.OPEN) {{
+                        statusDiv.textContent = '🟢 Connected';
+                        statusDiv.style.color = '#0f0';
+                    }}
                     break;
                 case 'typing':
                     if (data.content) {{
