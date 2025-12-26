@@ -2,7 +2,10 @@
 OneDay.run Platform - Configuration Settings
 Platforma LLM do automatycznej realizacji zamówień prototypowania
 """
-from pydantic_settings import BaseSettings
+try:
+    from pydantic_settings import BaseSettings
+except ModuleNotFoundError:  # pragma: no cover
+    from pydantic.v1 import BaseSettings
 from typing import Optional, List
 from functools import lru_cache
 

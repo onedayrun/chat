@@ -93,8 +93,16 @@ app = FastAPI(
 # CORS
 
 
-def _parse_csv(value: str) -> List[str]:
-    v = (value or "").strip()
+def _parse_csv(value: Any) -> List[str]:
+    if value is None:
+        return ["*"]
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    if not isinstance(value, str):
+        # e.g. tests may patch settings with Mock() objects
+        return ["*"]
+
+    v = value.strip()
     if not v or v == "*":
         return ["*"]
     return [part.strip() for part in v.split(",") if part.strip()]
@@ -103,7 +111,7 @@ def _parse_csv(value: str) -> List[str]:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_parse_csv(settings.CORS_ALLOW_ORIGINS),
-    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+    allow_credentials=bool(settings.CORS_ALLOW_CREDENTIALS),
     allow_methods=_parse_csv(settings.CORS_ALLOW_METHODS),
     allow_headers=_parse_csv(settings.CORS_ALLOW_HEADERS),
 )
