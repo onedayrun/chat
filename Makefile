@@ -40,7 +40,7 @@ playwright-install:
 	$(PYTHON) -m playwright install chromium
 
 e2e-ui:
-	$(PYTHON) -m dotenv run -- bash -c 'PORT="$${APP_PORT:-$${APP_HOST_PORT:-8000}}"; E2E_BASE_URL="http://localhost:$${PORT}" pytest tests/ -v -m e2e_ui'
+	$(PYTHON) -m dotenv run -- bash -c 'PORT="$${APP_HOST_PORT:-$${APP_PORT:-8000}}"; E2E_BASE_URL="http://localhost:$${PORT}" pytest tests/ -v -m e2e_ui'
 
 # Run tests with coverage
 coverage:

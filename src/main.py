@@ -879,20 +879,31 @@ async def chat_ui(project_id: str):
 
         function renderContent(text) {{
             const raw = String(text || '');
+            const source = raw;
             const parts = [];
             const re = /```([^\r\n`]*)\r?\n([\s\S]*?)```/g;
             let lastIndex = 0;
             let m;
-            while ((m = re.exec(raw)) !== null) {{
-                const before = raw.slice(lastIndex, m.index);
+            while ((m = re.exec(source)) !== null) {{
+                const before = source.slice(lastIndex, m.index);
                 if (before) parts.push(renderMarkdownBlock(before));
-                const info = String(m[1] || '').trimEnd();
+                const infoLine = String(m[1] || '').trimEnd();
                 const body = m[2] || '';
-                const code = info ? (info + '\n' + body) : body;
-                parts.push('<pre><code>' + escapeHtml(code) + '</code></pre>');
+
+                let meta = infoLine;
+                let firstLine = '';
+                const wsIdx = infoLine.search(/\s/);
+                if (wsIdx !== -1) {{
+                    meta = infoLine.slice(0, wsIdx);
+                    firstLine = infoLine.slice(wsIdx + 1).trimStart();
+                }}
+
+                const label = meta ? ('<div class="progress" style="margin:8px 0 6px;"><strong>Code:</strong> ' + escapeHtml(meta) + '</div>') : '';
+                const codeBody = firstLine ? (firstLine + '\n' + body) : body;
+                parts.push(label + '<pre><code>' + escapeHtml(codeBody) + '</code></pre>');
                 lastIndex = re.lastIndex;
             }}
-            const tail = raw.slice(lastIndex);
+            const tail = source.slice(lastIndex);
             if (tail) parts.push(renderMarkdownBlock(tail));
 
             const joined = parts.join('');
